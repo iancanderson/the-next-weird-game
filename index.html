@@ -4,10 +4,16 @@
     <meta charset="UTF-8" />
     <title>Side Scroller: Plumber vs Enemies with Coins, Sound & Music</title>
     <style>
+      /* Prevent user selection and callouts on iOS */
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
+        -webkit-touch-callout: none; /* iOS Safari */
+        -webkit-user-select: none; /* Chrome/Safari/Opera */
+        -moz-user-select: none; /* Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+        user-select: none; /* Non-prefixed version */
       }
       body {
         background: #eee;
@@ -26,6 +32,9 @@
       /* Simple styling for on-screen controls */
       #controls {
         margin-top: 10px;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
       }
       button.game-button {
         font-size: 18px;
@@ -35,6 +44,8 @@
         border: 1px solid #333;
         background-color: #ddd;
         cursor: pointer;
+        -webkit-tap-highlight-color: transparent; /* Remove highlight on tap */
+        outline: none;
       }
       button.game-button:active {
         background-color: #ccc;
@@ -78,8 +89,9 @@
       // Attempt to play music on first user interaction (click or touch)
       function unlockAudio() {
         backgroundMusic.play().catch(() => {
-          // Suppress any errors
+          // Some browsers might still block; that's okay
         });
+        // Remove event listeners once audio is attempted
         document.removeEventListener("click", unlockAudio);
         document.removeEventListener("touchstart", unlockAudio);
       }
@@ -110,20 +122,20 @@
       let lastFireballTime = 0;
       const FIREBALL_COOLDOWN = 5000;
 
-      // Poop enemies
+      // "Poop" enemy properties (stored in array 'mushrooms')
       let mushrooms = [];
       let mushroomSpawnInterval = 150; // frames between spawns
 
-      // Turtle enemies
+      // Turtle enemies (array 'turtles'):
       let turtles = [];
       let turtleSpawnInterval = 400; // frames between turtle spawns
 
-      // Coins
+      // Coin properties
       let coins = [];
       let coinSpawnInterval = 300;
       let coinsCollected = 0;
 
-      // Clouds
+      // Cloud properties
       let clouds = [];
       function initClouds() {
         for (let i = 0; i < 5; i++) {
@@ -166,60 +178,76 @@
       const jumpBtn = document.getElementById("jumpBtn");
       const shootBtn = document.getElementById("shootBtn");
 
-      // Helper function to handle button press down
+      // Press handlers
       function pressLeft() {
         keys.left = true;
-      }
-      function releaseLeft() {
-        keys.left = false;
       }
       function pressRight() {
         keys.right = true;
       }
-      function releaseRight() {
-        keys.right = false;
-      }
       function pressUp() {
         keys.up = true;
       }
-      function releaseUp() {
-        keys.up = false;
-      }
       function pressShoot() {
         keys.shoot = true;
+      }
+
+      // Release handlers
+      function releaseLeft() {
+        keys.left = false;
+      }
+      function releaseRight() {
+        keys.right = false;
+      }
+      function releaseUp() {
+        keys.up = false;
       }
       function releaseShoot() {
         keys.shoot = false;
       }
 
-      // Use both touch and mouse events for cross-device support
-      leftBtn.addEventListener("touchstart", pressLeft);
-      leftBtn.addEventListener("touchend", releaseLeft);
-      leftBtn.addEventListener("mousedown", pressLeft);
-      leftBtn.addEventListener("mouseup", releaseLeft);
-      leftBtn.addEventListener("mouseleave", releaseLeft); // to handle dragging off
+      // Attach touch/mouse events; prevent default on touchstart
+      leftBtn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        pressLeft();
+      });
+      leftBtn.addEventListener("touchend", () => releaseLeft());
+      leftBtn.addEventListener("mousedown", () => pressLeft());
+      leftBtn.addEventListener("mouseup", () => releaseLeft());
+      leftBtn.addEventListener("mouseleave", () => releaseLeft());
 
-      rightBtn.addEventListener("touchstart", pressRight);
-      rightBtn.addEventListener("touchend", releaseRight);
-      rightBtn.addEventListener("mousedown", pressRight);
-      rightBtn.addEventListener("mouseup", releaseRight);
-      rightBtn.addEventListener("mouseleave", releaseRight);
+      rightBtn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        pressRight();
+      });
+      rightBtn.addEventListener("touchend", () => releaseRight());
+      rightBtn.addEventListener("mousedown", () => pressRight());
+      rightBtn.addEventListener("mouseup", () => releaseRight());
+      rightBtn.addEventListener("mouseleave", () => releaseRight());
 
-      jumpBtn.addEventListener("touchstart", pressUp);
-      jumpBtn.addEventListener("touchend", releaseUp);
-      jumpBtn.addEventListener("mousedown", pressUp);
-      jumpBtn.addEventListener("mouseup", releaseUp);
-      jumpBtn.addEventListener("mouseleave", releaseUp);
+      jumpBtn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        pressUp();
+      });
+      jumpBtn.addEventListener("touchend", () => releaseUp());
+      jumpBtn.addEventListener("mousedown", () => pressUp());
+      jumpBtn.addEventListener("mouseup", () => releaseUp());
+      jumpBtn.addEventListener("mouseleave", () => releaseUp());
 
-      shootBtn.addEventListener("touchstart", pressShoot);
-      shootBtn.addEventListener("touchend", releaseShoot);
-      shootBtn.addEventListener("mousedown", pressShoot);
-      shootBtn.addEventListener("mouseup", releaseShoot);
-      shootBtn.addEventListener("mouseleave", releaseShoot);
+      shootBtn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        pressShoot();
+      });
+      shootBtn.addEventListener("touchend", () => releaseShoot());
+      shootBtn.addEventListener("mousedown", () => pressShoot());
+      shootBtn.addEventListener("mouseup", () => releaseShoot());
+      shootBtn.addEventListener("mouseleave", () => releaseShoot());
 
       // ============================================================
       // DRAWING FUNCTIONS
       // ============================================================
+
+      // Draw the plumber
       function drawPlumber() {
         let pantsHeight = plumber.height * 0.3;
         let skinHeight = plumber.height - pantsHeight;
@@ -235,8 +263,8 @@
           pantsHeight
         );
         // Hat
-        let hatHeight = 10;
-        let hatWidth = plumber.width + 10;
+        let hatHeight = 10,
+          hatWidth = plumber.width + 10;
         ctx.fillStyle = "red";
         ctx.fillRect(plumber.x - 5, plumber.y - hatHeight, hatWidth, hatHeight);
         ctx.fillRect(
@@ -247,6 +275,7 @@
         );
       }
 
+      // Draw the poop emoji enemies with walking legs
       function drawEnemy(m) {
         ctx.font = m.width + "px sans-serif";
         ctx.textBaseline = "top";
@@ -267,19 +296,23 @@
         ctx.stroke();
       }
 
+      // Draw turtle enemies: either "turtle" or "shell"
       function drawTurtles() {
         for (let t of turtles) {
           ctx.font = t.width + "px sans-serif";
           ctx.textBaseline = "top";
           if (t.type === "turtle") {
+            // Turtle emoji + shell emoji above it
             ctx.fillText("🐢", t.x, t.y);
             ctx.fillText("🐚", t.x, t.y - t.height / 2);
           } else if (t.type === "shell") {
+            // Shell only
             ctx.fillText("🐚", t.x, t.y);
           }
         }
       }
 
+      // Draw coins
       function drawCoins() {
         for (let coin of coins) {
           ctx.fillStyle = "gold";
@@ -292,6 +325,7 @@
         }
       }
 
+      // Draw clouds
       function drawClouds() {
         ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
         for (let cloud of clouds) {
@@ -312,6 +346,7 @@
       // ============================================================
       // UPDATE FUNCTIONS
       // ============================================================
+
       function updatePlumber() {
         // Horizontal movement
         if (keys.left) plumber.vx = -plumber.speed;
@@ -333,9 +368,8 @@
 
         // Boundaries
         if (plumber.x < 0) plumber.x = 0;
-        if (plumber.x + plumber.width > WIDTH) {
+        if (plumber.x + plumber.width > WIDTH)
           plumber.x = WIDTH - plumber.width;
-        }
         if (plumber.y + plumber.height >= GROUND_Y) {
           plumber.y = GROUND_Y - plumber.height;
           plumber.vy = 0;
@@ -370,11 +404,12 @@
         }
       }
 
+      // Spawn poop enemies
       function spawnMushrooms() {
         if (frameCount % mushroomSpawnInterval === 0) {
           mushrooms.push({
             x: WIDTH,
-            y: GROUND_Y - 50,
+            y: GROUND_Y - 50, // 40 + 10 for legs
             width: 40,
             height: 40,
             speed: 2,
@@ -382,12 +417,11 @@
           });
         }
       }
-
       function updateMushrooms() {
         for (let i = 0; i < mushrooms.length; i++) {
           let m = mushrooms[i];
           m.legCycle = (m.legCycle || 0) + 0.1;
-          m.x -= m.speed;
+          m.x -= m.speed; // always moves left
           if (m.x + m.width < 0) {
             mushrooms.splice(i, 1);
             i--;
@@ -395,6 +429,7 @@
         }
       }
 
+      // Spawn turtle enemies
       function spawnTurtles() {
         if (frameCount % turtleSpawnInterval === 0) {
           turtles.push({
@@ -402,13 +437,12 @@
             y: GROUND_Y - 50,
             width: 40,
             height: 40,
-            speed: 1.5,
+            speed: 1.5, // moves left if type === "turtle"
             type: "turtle",
             legCycle: 0,
           });
         }
       }
-
       function updateTurtles() {
         for (let i = 0; i < turtles.length; i++) {
           let t = turtles[i];
@@ -416,7 +450,7 @@
             t.legCycle = (t.legCycle || 0) + 0.1;
             t.x -= t.speed;
           } else if (t.type === "shell") {
-            // shell moves horizontally if speed != 0
+            // If shell speed != 0, move horizontally
             t.x += t.speed;
           }
           if (t.x + t.width < 0 || t.x > WIDTH + t.width) {
@@ -426,6 +460,7 @@
         }
       }
 
+      // Spawn coins
       function spawnCoins() {
         if (frameCount % coinSpawnInterval === 0) {
           coins.push({
@@ -436,7 +471,6 @@
           });
         }
       }
-
       function updateCoins() {
         for (let i = 0; i < coins.length; i++) {
           coins[i].x -= coins[i].speed;
@@ -459,6 +493,7 @@
       // ============================================================
       // COLLISION FUNCTIONS
       // ============================================================
+      // Poop + Plumber collision
       function checkPlumberMushroomCollision() {
         for (let i = 0; i < mushrooms.length; i++) {
           let m = mushrooms[i];
@@ -473,6 +508,7 @@
               plumber.vy > 0 &&
               plumber.y + plumber.height / 2 < m.y + m.height / 2
             ) {
+              // Remove the mushroom
               mushrooms.splice(i, 1);
               plumber.vy = -plumber.jumpPower / 2; // bounce
               score++;
@@ -488,6 +524,7 @@
                 if (plumber.lives <= 0) {
                   gameOver = true;
                 } else {
+                  // Reset position + invulnerability
                   plumber.x = 100;
                   plumber.y = GROUND_Y - plumber.height;
                   plumber.vx = 0;
@@ -500,6 +537,7 @@
         }
       }
 
+      // Turtle + Plumber collision
       function checkPlumberTurtleCollision() {
         for (let i = 0; i < turtles.length; i++) {
           let t = turtles[i];
@@ -515,7 +553,7 @@
                 plumber.vy > 0 &&
                 plumber.y + plumber.height / 2 < t.y + t.height / 2
               ) {
-                // Turn turtle into a shell
+                // Remove turtle, replace with stationary shell
                 turtles.splice(i, 1);
                 turtles.push({
                   x: t.x,
@@ -531,6 +569,7 @@
                 enemyKillSound.play();
                 continue;
               } else {
+                // If plumber is vulnerable, take damage
                 if (plumber.invulnerable <= 0) {
                   plumber.lives--;
                   lifeLostSound.currentTime = 0;
@@ -547,18 +586,20 @@
                 }
               }
             } else if (t.type === "shell") {
-              // If shell is stationary, activate it
+              // The shell never hurts the plumber
+              // If shell is stationary, activate it by setting speed
               if (t.speed === 0) {
                 let plumberCenter = plumber.x + plumber.width / 2;
                 let shellCenter = t.x + t.width / 2;
+                // Move shell left or right
                 t.speed = plumberCenter < shellCenter ? 6 : -6;
               }
-              // Shell doesn't harm the plumber
             }
           }
         }
       }
 
+      // Shell collision with enemies
       function checkShellCollisions() {
         for (let i = 0; i < turtles.length; i++) {
           let shell = turtles[i];
@@ -579,9 +620,9 @@
                 j--;
               }
             }
-            // Collide with other turtles (type = "turtle")
+            // Collide with active turtles
             for (let j = 0; j < turtles.length; j++) {
-              if (j === i) continue;
+              if (j === i) continue; // skip itself
               let t = turtles[j];
               if (
                 t.type === "turtle" &&
@@ -601,6 +642,7 @@
         }
       }
 
+      // Plumber collects coins
       function checkPlumberCoinCollision() {
         for (let i = 0; i < coins.length; i++) {
           let coin = coins[i];
@@ -619,6 +661,7 @@
         }
       }
 
+      // Fireball collisions with enemies
       function checkFireballCollisions() {
         for (let i = 0; i < fireballs.length; i++) {
           const f = fireballs[i];
@@ -722,6 +765,7 @@
           frameCount++;
           requestAnimationFrame(gameLoop);
         } else {
+          // GAME OVER
           if (!gameOverSoundPlayed) {
             gameOverSound.play();
             gameOverSoundPlayed = true;
