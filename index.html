@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Side Scroller: Plumber vs Enemies with Coins, Sound & Music</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #eee;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+        font-family: sans-serif;
+      }
+      #gameCanvas {
+        background: linear-gradient(to bottom, #87cefa, #eee 80%);
+        border: 2px solid #333;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+    <script>
+      // ============================================================
+      // GLOBALS
+      // ============================================================
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const WIDTH = canvas.width;
+      const HEIGHT = canvas.height;
+      const GROUND_Y = HEIGHT - 50; // Ground drawn at y = 350
+
+      // Audio objects for sound effects (ensure these files exist)
+      let jumpSound = new Audio("jump.mp3");
+      let enemyKillSound = new Audio("enemyKill.mp3");
+      let coinSound = new Audio("coin.mp3");
+      let lifeLostSound = new Audio("lifeLost.mp3");
+      let gameOverSound = new Audio("gameOver.mp3");
+      let gameOverSoundPlayed = false;
+
+      // Background music (looping at half volume)
+      let backgroundMusic = new Audio("bgm.mp3");
+      backgroundMusic.loop = true;
+      backgroundMusic.volume = 0.5;
+      backgroundMusic.play().catch((e) => {
+        // Autoplay might be blocked; if so, wait for user interaction.
+        document.addEventListener(
+          "click",
+          () => {
+            backgroundMusic.play();
+          },
+          { once: true }
+        );
+      });
+
+      // Plumber properties
+      let plumber = {
+        x: 100,
+        y: GROUND_Y - 50, // stands on ground
+        width: 30,
+        height: 50,
+        vx: 0,
+        vy: 0,
+        speed: 3,
+        jumpPower: 10,
+        onGround: true,
+        lives: 5,
+        invulnerable: 0,
+      };
+
+      // Movement flags
+      let keys = { left: false, right: false, up: false, shoot: false };
+      const GRAVITY = 0.5;
+
+      // Fireball properties
+      let fireballs = [];
+      let lastFireballTime = 0;
+      const FIREBALL_COOLDOWN = 5000;
+
+      // "Poop" enemy properties (stored in array 'mushrooms')
+      let mushrooms = [];
+      let mushroomSpawnInterval = 150; // frames between spawns
+
+      // Turtle enemies (array 'turtles'):
+      //  - type "turtle": moves left by default
+      //  - type "shell": stationary until activated; once speed != 0, moves horizontally
+      let turtles = [];
+      let turtleSpawnInterval = 400; // frames between turtle spawns
+
+      // Coin properties
+      let coins = [];
+      let coinSpawnInterval = 300;
+      let coinsCollected = 0;
+
+      // Cloud properties
+      let clouds = [];
+      function initClouds() {
+        for (let i = 0; i < 5; i++) {
+          clouds.push({
+            x: Math.random() * WIDTH,
+            y: Math.random() * (GROUND_Y / 2),
+            width: 80 + Math.random() * 40,
+            height: 30 + Math.random() * 20,
+            speed: 0.5 + Math.random() * 0.5,
+          });
+        }
+      }
+      initClouds();
+
+      let score = 0;
+      let frameCount = 0;
+      let gameOver = false;
+
+      // ============================================================
+      // EVENT LISTENERS
+      // ============================================================
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft") keys.left = true;
+        if (e.key === "ArrowRight") keys.right = true;
+        if (e.key === "ArrowUp") keys.up = true;
+        if (e.key === " ") keys.shoot = true;
+      });
+      document.addEventListener("keyup", (e) => {
+        if (e.key === "ArrowLeft") keys.left = false;
+        if (e.key === "ArrowRight") keys.right = false;
+        if (e.key === "ArrowUp") keys.up = false;
+        if (e.key === " ") keys.shoot = false;
+      });
+
+      // ============================================================
+      // DRAWING FUNCTIONS
+      // ============================================================
+
+      // Draw the plumber
+      function drawPlumber() {
+        let pantsHeight = plumber.height * 0.3;
+        let skinHeight = plumber.height - pantsHeight;
+        // Skin
+        ctx.fillStyle = "#ffe0bd";
+        ctx.fillRect(plumber.x, plumber.y, plumber.width, skinHeight);
+        // Pants
+        ctx.fillStyle = "blue";
+        ctx.fillRect(
+          plumber.x,
+          plumber.y + skinHeight,
+          plumber.width,
+          pantsHeight
+        );
+        // Hat
+        let hatHeight = 10,
+          hatWidth = plumber.width + 10;
+        ctx.fillStyle = "red";
+        ctx.fillRect(plumber.x - 5, plumber.y - hatHeight, hatWidth, hatHeight);
+        ctx.fillRect(
+          plumber.x - 10,
+          plumber.y - hatHeight + hatHeight,
+          hatWidth + 20,
+          3
+        );
+      }
+
+      // Draw the poop emoji enemies with walking legs
+      function drawEnemy(m) {
+        ctx.font = m.width + "px sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillText("💩", m.x, m.y);
+        let legOffsetLeft = Math.sin(m.legCycle || 0) * 5;
+        let legOffsetRight = Math.sin((m.legCycle || 0) + Math.PI) * 5;
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        // Left leg
+        ctx.beginPath();
+        ctx.moveTo(m.x + m.width * 0.3, m.y + m.height - 5);
+        ctx.lineTo(m.x + m.width * 0.3 + legOffsetLeft, m.y + m.height + 10);
+        ctx.stroke();
+        // Right leg
+        ctx.beginPath();
+        ctx.moveTo(m.x + m.width * 0.7, m.y + m.height - 5);
+        ctx.lineTo(m.x + m.width * 0.7 + legOffsetRight, m.y + m.height + 10);
+        ctx.stroke();
+      }
+
+      // Draw turtle enemies: either "turtle" or "shell"
+      function drawTurtles() {
+        for (let t of turtles) {
+          ctx.font = t.width + "px sans-serif";
+          ctx.textBaseline = "top";
+          if (t.type === "turtle") {
+            // Turtle emoji + shell emoji above it
+            ctx.fillText("🐢", t.x, t.y);
+            ctx.fillText("🐚", t.x, t.y - t.height / 2);
+          } else if (t.type === "shell") {
+            // Shell only
+            ctx.fillText("🐚", t.x, t.y);
+          }
+        }
+      }
+
+      // Draw coins
+      function drawCoins() {
+        for (let coin of coins) {
+          ctx.fillStyle = "gold";
+          ctx.beginPath();
+          ctx.arc(coin.x, coin.y, coin.radius, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.strokeStyle = "darkgoldenrod";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+
+      function drawClouds() {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        for (let cloud of clouds) {
+          ctx.beginPath();
+          ctx.ellipse(
+            cloud.x,
+            cloud.y,
+            cloud.width / 2,
+            cloud.height / 2,
+            0,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+        }
+      }
+
+      // ============================================================
+      // UPDATE FUNCTIONS
+      // ============================================================
+
+      function updatePlumber() {
+        // Horizontal movement
+        if (keys.left) plumber.vx = -plumber.speed;
+        else if (keys.right) plumber.vx = plumber.speed;
+        else plumber.vx = 0;
+
+        // Jump
+        if (keys.up && plumber.onGround) {
+          jumpSound.currentTime = 0;
+          jumpSound.play();
+          plumber.vy = -plumber.jumpPower;
+          plumber.onGround = false;
+        }
+
+        // Gravity + position update
+        plumber.vy += GRAVITY;
+        plumber.x += plumber.vx;
+        plumber.y += plumber.vy;
+
+        // Boundaries
+        if (plumber.x < 0) plumber.x = 0;
+        if (plumber.x + plumber.width > WIDTH)
+          plumber.x = WIDTH - plumber.width;
+        if (plumber.y + plumber.height >= GROUND_Y) {
+          plumber.y = GROUND_Y - plumber.height;
+          plumber.vy = 0;
+          plumber.onGround = true;
+        }
+
+        // Invulnerability countdown
+        if (plumber.invulnerable > 0) plumber.invulnerable--;
+      }
+
+      function shootFireball() {
+        let now = Date.now();
+        if (keys.shoot && now - lastFireballTime >= FIREBALL_COOLDOWN) {
+          fireballs.push({
+            x: plumber.x + plumber.width / 2,
+            y: plumber.y + plumber.height / 2,
+            radius: 5,
+            speed: 5,
+          });
+          lastFireballTime = now;
+        }
+      }
+
+      function updateFireballs() {
+        for (let i = 0; i < fireballs.length; i++) {
+          fireballs[i].x += fireballs[i].speed;
+          // Remove if off-screen
+          if (fireballs[i].x > WIDTH) {
+            fireballs.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Spawn poop emoji enemies
+      function spawnMushrooms() {
+        if (frameCount % mushroomSpawnInterval === 0) {
+          mushrooms.push({
+            x: WIDTH,
+            y: GROUND_Y - 50, // 40 + 10 for legs
+            width: 40,
+            height: 40,
+            speed: 2,
+            legCycle: 0,
+          });
+        }
+      }
+
+      function updateMushrooms() {
+        for (let i = 0; i < mushrooms.length; i++) {
+          let m = mushrooms[i];
+          m.legCycle = (m.legCycle || 0) + 0.1;
+          m.x -= m.speed; // always moves left
+          // Remove if off-screen
+          if (m.x + m.width < 0) {
+            mushrooms.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Spawn turtle enemies
+      function spawnTurtles() {
+        if (frameCount % turtleSpawnInterval === 0) {
+          turtles.push({
+            x: WIDTH,
+            y: GROUND_Y - 50,
+            width: 40,
+            height: 40,
+            speed: 1.5, // moves left if type === "turtle"
+            type: "turtle",
+            legCycle: 0,
+          });
+        }
+      }
+
+      // Update turtle + shell positions
+      function updateTurtles() {
+        for (let i = 0; i < turtles.length; i++) {
+          let t = turtles[i];
+          if (t.type === "turtle") {
+            // Animate legs, move left
+            t.legCycle = (t.legCycle || 0) + 0.1;
+            t.x -= t.speed;
+          } else if (t.type === "shell") {
+            // If shell speed != 0, move horizontally
+            t.x += t.speed;
+          }
+
+          // Remove if it goes off screen on either side
+          if (t.x + t.width < 0 || t.x > WIDTH + t.width) {
+            turtles.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Spawn coins
+      function spawnCoins() {
+        if (frameCount % coinSpawnInterval === 0) {
+          coins.push({
+            x: WIDTH,
+            y: Math.random() * 100 + (GROUND_Y - 150),
+            radius: 10,
+            speed: 2,
+          });
+        }
+      }
+
+      function updateCoins() {
+        for (let i = 0; i < coins.length; i++) {
+          coins[i].x -= coins[i].speed;
+          if (coins[i].x + coins[i].radius < 0) {
+            coins.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      function updateClouds() {
+        for (let cloud of clouds) {
+          cloud.x -= cloud.speed;
+          if (cloud.x < -cloud.width) {
+            cloud.x = WIDTH + cloud.width;
+          }
+        }
+      }
+
+      // ============================================================
+      // COLLISION FUNCTIONS
+      // ============================================================
+
+      // Poop + Plumber collision
+      function checkPlumberMushroomCollision() {
+        for (let i = 0; i < mushrooms.length; i++) {
+          let m = mushrooms[i];
+          if (
+            plumber.x < m.x + m.width &&
+            plumber.x + plumber.width > m.x &&
+            plumber.y < m.y + m.height &&
+            plumber.y + plumber.height > m.y
+          ) {
+            // Stomp condition
+            if (
+              plumber.vy > 0 &&
+              plumber.y + plumber.height / 2 < m.y + m.height / 2
+            ) {
+              // Remove the mushroom
+              mushrooms.splice(i, 1);
+              plumber.vy = -plumber.jumpPower / 2; // bounce
+              score++;
+              enemyKillSound.currentTime = 0;
+              enemyKillSound.play();
+              continue;
+            } else {
+              // If plumber is vulnerable, take damage
+              if (plumber.invulnerable <= 0) {
+                plumber.lives--;
+                lifeLostSound.currentTime = 0;
+                lifeLostSound.play();
+                if (plumber.lives <= 0) {
+                  gameOver = true;
+                } else {
+                  // Reset position + invulnerability
+                  plumber.x = 100;
+                  plumber.y = GROUND_Y - plumber.height;
+                  plumber.vx = 0;
+                  plumber.vy = 0;
+                  plumber.invulnerable = 60;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Turtle + Plumber collision
+      function checkPlumberTurtleCollision() {
+        for (let i = 0; i < turtles.length; i++) {
+          let t = turtles[i];
+          // Basic bounding box test
+          if (
+            plumber.x < t.x + t.width &&
+            plumber.x + plumber.width > t.x &&
+            plumber.y < t.y + t.height &&
+            plumber.y + plumber.height > t.y
+          ) {
+            if (t.type === "turtle") {
+              // Stomp condition
+              if (
+                plumber.vy > 0 &&
+                plumber.y + plumber.height / 2 < t.y + t.height / 2
+              ) {
+                // Remove turtle, replace with stationary shell
+                turtles.splice(i, 1);
+                turtles.push({
+                  x: t.x,
+                  y: t.y,
+                  width: t.width,
+                  height: t.height,
+                  speed: 0,
+                  type: "shell",
+                });
+                plumber.vy = -plumber.jumpPower / 2;
+                score++;
+                enemyKillSound.currentTime = 0;
+                enemyKillSound.play();
+                continue;
+              } else {
+                // If plumber is vulnerable, take damage
+                if (plumber.invulnerable <= 0) {
+                  plumber.lives--;
+                  lifeLostSound.currentTime = 0;
+                  lifeLostSound.play();
+                  if (plumber.lives <= 0) {
+                    gameOver = true;
+                  } else {
+                    plumber.x = 100;
+                    plumber.y = GROUND_Y - plumber.height;
+                    plumber.vx = 0;
+                    plumber.vy = 0;
+                    plumber.invulnerable = 60;
+                  }
+                }
+              }
+            } else if (t.type === "shell") {
+              // The shell never hurts the plumber
+              // If shell is stationary, activate it by setting speed
+              if (t.speed === 0) {
+                let plumberCenter = plumber.x + plumber.width / 2;
+                let shellCenter = t.x + t.width / 2;
+                // Move shell to left or right
+                t.speed = plumberCenter < shellCenter ? 6 : -6;
+              }
+              // No bounce or damage
+              continue;
+            }
+          }
+        }
+      }
+
+      // Shell collision with enemies
+      function checkShellCollisions() {
+        for (let i = 0; i < turtles.length; i++) {
+          let shell = turtles[i];
+          if (shell.type === "shell" && shell.speed !== 0) {
+            // Collide with poop enemies
+            for (let j = 0; j < mushrooms.length; j++) {
+              let m = mushrooms[j];
+              if (
+                shell.x < m.x + m.width &&
+                shell.x + shell.width > m.x &&
+                shell.y < m.y + m.height &&
+                shell.y + shell.height > m.y
+              ) {
+                mushrooms.splice(j, 1);
+                score++;
+                enemyKillSound.currentTime = 0;
+                enemyKillSound.play();
+                j--;
+              }
+            }
+            // Collide with active turtles
+            for (let j = 0; j < turtles.length; j++) {
+              if (j === i) continue; // skip itself
+              let t = turtles[j];
+              // Only kill turtle enemies of type "turtle"
+              if (
+                t.type === "turtle" &&
+                shell.x < t.x + t.width &&
+                shell.x + shell.width > t.x &&
+                shell.y < t.y + t.height &&
+                shell.y + shell.height > t.y
+              ) {
+                turtles.splice(j, 1);
+                score++;
+                enemyKillSound.currentTime = 0;
+                enemyKillSound.play();
+                j--;
+              }
+            }
+          }
+        }
+      }
+
+      // Plumber collects coins
+      function checkPlumberCoinCollision() {
+        for (let i = 0; i < coins.length; i++) {
+          let coin = coins[i];
+          if (
+            coin.x + coin.radius > plumber.x &&
+            coin.x - coin.radius < plumber.x + plumber.width &&
+            coin.y + coin.radius > plumber.y &&
+            coin.y - coin.radius < plumber.y + plumber.height
+          ) {
+            coinSound.currentTime = 0;
+            coinSound.play();
+            coinsCollected++;
+            coins.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Fireball collisions with enemies
+      function checkFireballCollisions() {
+        for (let i = 0; i < fireballs.length; i++) {
+          const f = fireballs[i];
+          // Poop enemies
+          for (let j = 0; j < mushrooms.length; j++) {
+            const m = mushrooms[j];
+            if (
+              f.x - f.radius < m.x + m.width &&
+              f.x + f.radius > m.x &&
+              f.y - f.radius < m.y + m.height &&
+              f.y + f.radius > m.y
+            ) {
+              mushrooms.splice(j, 1);
+              fireballs.splice(i, 1);
+              score++;
+              enemyKillSound.currentTime = 0;
+              enemyKillSound.play();
+              i--;
+              break;
+            }
+          }
+          // Turtle enemies
+          for (let j = 0; j < turtles.length; j++) {
+            const t = turtles[j];
+            if (
+              f.x - f.radius < t.x + t.width &&
+              f.x + f.radius > t.x &&
+              f.y - f.radius < t.y + t.height &&
+              f.y + f.radius > t.y
+            ) {
+              turtles.splice(j, 1);
+              fireballs.splice(i, 1);
+              score++;
+              enemyKillSound.currentTime = 0;
+              enemyKillSound.play();
+              i--;
+              break;
+            }
+          }
+        }
+      }
+
+      // ============================================================
+      // DRAW & GAME LOOP
+      // ============================================================
+      function clearCanvas() {
+        ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      }
+
+      function draw() {
+        drawClouds();
+        drawPlumber();
+        // Fireballs
+        ctx.fillStyle = "orange";
+        for (let f of fireballs) {
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, f.radius, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        // Poop enemies
+        for (let m of mushrooms) {
+          drawEnemy(m);
+        }
+        // Turtles + shells
+        drawTurtles();
+        // Coins
+        drawCoins();
+        // Ground
+        ctx.fillStyle = "green";
+        ctx.fillRect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y);
+        // HUD: score/lives/coins
+        ctx.fillStyle = "black";
+        ctx.font = "20px Arial";
+        ctx.fillText("Score: " + score, 20, 30);
+        ctx.fillText("Lives: " + plumber.lives, 20, 55);
+        ctx.fillText("Coins: " + coinsCollected, 20, 80);
+      }
+
+      function gameLoop() {
+        if (!gameOver) {
+          clearCanvas();
+          updateClouds();
+          updatePlumber();
+          shootFireball();
+          updateFireballs();
+          spawnMushrooms();
+          updateMushrooms();
+          spawnTurtles();
+          updateTurtles();
+          spawnCoins();
+          updateCoins();
+
+          // Collisions
+          checkPlumberMushroomCollision();
+          checkPlumberTurtleCollision();
+          checkShellCollisions();
+          checkFireballCollisions();
+          checkPlumberCoinCollision();
+
+          draw();
+          frameCount++;
+          requestAnimationFrame(gameLoop);
+        } else {
+          // GAME OVER
+          if (!gameOverSoundPlayed) {
+            gameOverSound.play();
+            gameOverSoundPlayed = true;
+          }
+          ctx.fillStyle = "rgba(0,0,0,0.5)";
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+          ctx.fillStyle = "#fff";
+          ctx.font = "40px Arial";
+          ctx.fillText("GAME OVER", WIDTH / 2 - 100, HEIGHT / 2 - 20);
+          ctx.font = "20px Arial";
+          ctx.fillText(
+            "Final Score: " + score,
+            WIDTH / 2 - 70,
+            HEIGHT / 2 + 20
+          );
+        }
+      }
+
+      gameLoop();
+    </script>
+  </body>
+</html>
