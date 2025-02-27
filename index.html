@@ -113,6 +113,55 @@
         invulnerable: 0,
       };
 
+      // Coin formation patterns
+      const COIN_PATTERNS = {
+        circle: (x, y, radius, numCoins) => {
+          let coins = [];
+          for (let i = 0; i < numCoins; i++) {
+            const angle = (i / numCoins) * Math.PI * 2;
+            coins.push({
+              x: x + Math.cos(angle) * radius,
+              y: y + Math.sin(angle) * radius,
+              radius: 10,
+              speed: 2,
+            });
+          }
+          return coins;
+        },
+        triangle: (x, y, size) => {
+          let coins = [];
+          // Top point
+          coins.push({ x: x, y: y, radius: 10, speed: 2 });
+          // Bottom left
+          coins.push({ x: x - size / 2, y: y + size, radius: 10, speed: 2 });
+          // Bottom right
+          coins.push({ x: x + size / 2, y: y + size, radius: 10, speed: 2 });
+          return coins;
+        },
+        letterV: (x, y, size) => {
+          let coins = [];
+          // Left line
+          for (let i = 0; i < 3; i++) {
+            coins.push({
+              x: x - size / 2 + (i * size) / 4,
+              y: y + (i * size) / 2,
+              radius: 10,
+              speed: 2,
+            });
+          }
+          // Right line
+          for (let i = 0; i < 3; i++) {
+            coins.push({
+              x: x + size / 2 - (i * size) / 4,
+              y: y + (i * size) / 2,
+              radius: 10,
+              speed: 2,
+            });
+          }
+          return coins;
+        },
+      };
+
       // Movement flags
       let keys = { left: false, right: false, up: false, shoot: false };
       const GRAVITY = 0.5;
@@ -129,7 +178,7 @@
       // Turtle enemies (array 'turtles'):
       let turtles = [];
       let turtleSpawnInterval = 400; // frames between turtle spawns
-      
+
       // Flying turtle enemies
       let flyingTurtles = [];
       let flyingTurtleSpawnInterval = 600; // frames between flying turtle spawns
@@ -324,7 +373,7 @@
           ctx.textBaseline = "top";
           // Flying turtle: turtle emoji + wing emoji combination
           ctx.fillText("🐢", ft.x, ft.y);
-          ctx.fillText("💭", ft.x - ft.width/4, ft.y - ft.height/3);
+          ctx.fillText("💭", ft.x - ft.width / 4, ft.y - ft.height / 3);
         }
       }
 
@@ -497,7 +546,7 @@
             verticalSpeed: 0.5, // Up/down movement
             direction: 1, // 1 = down, -1 = up
             shellDropTimer: Math.floor(Math.random() * 100) + 100, // Random time before dropping shell
-            movePattern: Math.floor(Math.random() * 3) // Different movement patterns
+            movePattern: Math.floor(Math.random() * 3), // Different movement patterns
           });
         }
       }
@@ -506,10 +555,10 @@
       function updateFlyingTurtles() {
         for (let i = 0; i < flyingTurtles.length; i++) {
           let ft = flyingTurtles[i];
-          
+
           // Move horizontally
           ft.x -= ft.speed;
-          
+
           // Move vertically based on pattern
           if (ft.movePattern === 0) {
             // Sine wave movement
@@ -517,7 +566,7 @@
           } else if (ft.movePattern === 1) {
             // Up and down movement with direction changes
             ft.y += ft.verticalSpeed * ft.direction;
-            
+
             // Change direction at boundaries
             if (ft.y < 50) {
               ft.direction = 1;
@@ -530,33 +579,33 @@
               ft.verticalSpeed = (Math.random() - 0.5) * 0.8;
             }
             ft.y += ft.verticalSpeed;
-            
+
             // Keep within bounds
             if (ft.y < 50) ft.y = 50;
             if (ft.y > 200) ft.y = 200;
           }
-          
+
           // Drop shell logic
           ft.shellDropTimer--;
           if (ft.shellDropTimer <= 0) {
             // Drop a shell aimed at player's position
-            let playerPosX = plumber.x + plumber.width/2;
+            let playerPosX = plumber.x + plumber.width / 2;
             let angle = Math.atan2(GROUND_Y - ft.y - 30, playerPosX - ft.x);
-            
+
             fallingShells.push({
-              x: ft.x + ft.width/2,
+              x: ft.x + ft.width / 2,
               y: ft.y + ft.height,
               width: 30,
               height: 30,
               velocityX: Math.cos(angle) * 3,
               velocityY: 2,
-              onGround: false
+              onGround: false,
             });
-            
+
             // Reset drop timer
             ft.shellDropTimer = Math.floor(Math.random() * 150) + 100;
           }
-          
+
           // Remove if off-screen
           if (ft.x + ft.width < 0) {
             flyingTurtles.splice(i, 1);
@@ -569,13 +618,13 @@
       function updateFallingShells() {
         for (let i = 0; i < fallingShells.length; i++) {
           let shell = fallingShells[i];
-          
+
           if (!shell.onGround) {
             // Apply gravity and movement
             shell.velocityY += GRAVITY * 0.8;
             shell.x += shell.velocityX;
             shell.y += shell.velocityY;
-            
+
             // Check if shell hits ground
             if (shell.y + shell.height >= GROUND_Y) {
               shell.y = GROUND_Y - shell.height;
@@ -584,7 +633,7 @@
               shell.onGround = true;
             }
           }
-          
+
           // Remove if off-screen
           if (shell.x < -shell.width || shell.x > WIDTH + shell.width) {
             fallingShells.splice(i, 1);
@@ -596,14 +645,29 @@
       // Spawn coins
       function spawnCoins() {
         if (frameCount % coinSpawnInterval === 0) {
-          coins.push({
-            x: WIDTH,
-            y: Math.random() * 100 + (GROUND_Y - 150),
-            radius: 10,
-            speed: 2,
-          });
+          const patterns = ["circle", "triangle", "letterV"];
+          const pattern = patterns[Math.floor(Math.random() * patterns.length)];
+
+          let newCoins;
+          const baseX = WIDTH;
+          const baseY = Math.random() * 100 + (GROUND_Y - 150);
+
+          switch (pattern) {
+            case "circle":
+              newCoins = COIN_PATTERNS.circle(baseX, baseY, 30, 8);
+              break;
+            case "triangle":
+              newCoins = COIN_PATTERNS.triangle(baseX, baseY, 40);
+              break;
+            case "letterV":
+              newCoins = COIN_PATTERNS.letterV(baseX, baseY, 50);
+              break;
+          }
+
+          coins.push(...newCoins);
         }
       }
+
       function updateCoins() {
         for (let i = 0; i < coins.length; i++) {
           coins[i].x -= coins[i].speed;
@@ -842,7 +906,7 @@
         // Player collision with falling shells
         for (let i = 0; i < fallingShells.length; i++) {
           let shell = fallingShells[i];
-          
+
           if (
             plumber.x < shell.x + shell.width &&
             plumber.x + plumber.width > shell.x &&
@@ -869,7 +933,7 @@
               // Shell is on ground, player can kick it
               let plumberCenter = plumber.x + plumber.width / 2;
               let shellCenter = shell.x + shell.width / 2;
-              
+
               // Convert to regular shell that moves
               turtles.push({
                 x: shell.x,
@@ -877,16 +941,16 @@
                 width: shell.width,
                 height: shell.height,
                 speed: plumberCenter < shellCenter ? 6 : -6,
-                type: "shell"
+                type: "shell",
               });
-              
+
               // Remove the falling shell
               fallingShells.splice(i, 1);
               i--;
             }
           }
         }
-        
+
         // Collision between shells and flying turtles
         for (let i = 0; i < turtles.length; i++) {
           let shell = turtles[i];
@@ -908,7 +972,7 @@
             }
           }
         }
-        
+
         // Collision between fireballs and flying turtles
         for (let i = 0; i < fireballs.length; i++) {
           const f = fireballs[i];
